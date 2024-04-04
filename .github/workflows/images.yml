@@ -1,0 +1,99 @@
+name: Build images
+
+on:
+  push:
+    branches: ['main']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+jobs:
+  build-images:
+    concurrency:
+      # If a previous run is ongoing with the same head_ref (it's a run on the
+      # same PR) then cancel it to save time. If it isn't a PR, only cancel the
+      # previous run if it's on the same commit SHA. This prevents a run for a
+      # commit push from cancelling a previous commit push's build, since we
+      # want an image built and tagged for each commit.
+      group: build-images-${{ matrix.image }}-${{ github.head_ref || github.sha }}
+      cancel-in-progress: true
+    permissions:
+      contents: read  # Read the repo contents.
+      id-token: write # Produce identity token for keyless signing.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+        # - executor
+        - executor-debug
+       # - executor-slim
+       # - warmer
+
+        include:
+
+        
+        # - image: executor
+        #   target: kaniko-executor
+        #   platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+        #   image-name: gcr.io/kaniko-project/executor
+        #   tag: ${{ github.sha }}
+        #   release-tag: latest
+
+        - image: executor-debug
+          target: kaniko-debug
+          platforms: linux/amd64,linux/arm64,linux/s390x
+          image-name: gcr.io/kaniko-project/executor
+          tag: ${{ github.sha }}-debug
+          release-tag: debug
+
+        # - image: executor-slim
+        #   target: kaniko-slim
+        #   platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+        #   image-name: gcr.io/kaniko-project/executor
+        #   tag: ${{ github.sha }}-slim
+        #   release-tag: slim
+
+        # - image: warmer
+        #   target: kaniko-warmer
+        #   platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+        #   image-name: gcr.io/kaniko-project/warmer
+        #   tag: ${{ github.sha }}
+        #   release-tag: latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: configure AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+        aws-region: ap-south-1
+
+
+    # Build and push with Docker.
+    - uses: docker/setup-qemu-action@v3 # v3.0.0
+      with:
+        platforms: ${{ matrix.platforms }}
+    - uses: docker/setup-buildx-action@v3 # v1
+
+    - name: Login to ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        mask-password: 'true'
+      
+    - name: Build Image
+      id: build-ecr-image
+      env:
+        ECR_REGISTRY: ${{ steps.login.ecr-outputs.registry }}
+        ECR_REPOSITORY: kaniko-poc
+        IMAGE_TAG: kaniko-test-1
+      uses: docker/build-push-action@v5 # v5.3.0
+      
+      with:
+        context: .
+        file: ./deploy/Dockerfile
+        platforms: ${{ steps.platforms.outputs.platforms }}
+        push: ${{ github.event_name != 'pull_request' }} # Only push if not a PR.
+        tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+    
