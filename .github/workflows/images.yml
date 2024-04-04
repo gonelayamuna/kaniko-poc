@@ -85,7 +85,7 @@ jobs:
     - name: Build Image
       id: build-ecr-image
       env:
-        ECR_REGISTRY: ${{ steps.login.ecr-outputs.registry }}
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY: kaniko-poc
         IMAGE_TAG: kaniko-test-1
       uses: docker/build-push-action@v5 # v5.3.0
